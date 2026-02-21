@@ -1,0 +1,16 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/pickups/health_pickup.gd" id="1"]
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_hp"]
+radius = 1.0
+
+[node name="HealthPickup" type="Area3D" groups=["pickups"]]
+script = ExtResource("1")
+collision_layer = 16
+collision_mask = 2
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("SphereShape3D_hp")
+
+[node name="Visual" type="Node3D" parent="."]
