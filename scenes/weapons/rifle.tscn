@@ -1,0 +1,30 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/weapons/weapon_base.gd" id="1"]
+[ext_resource type="PackedScene" uid="uid://rifle_model" path="res://models/SM_Rifle.glb" id="2"]
+
+[node name="Rifle" type="Node3D"]
+script = ExtResource("1")
+weapon_name = "Assault Rifle"
+damage = 25.0
+fire_rate = 0.1
+range_distance = 100.0
+max_ammo = 30
+max_reserve = 120
+reload_time = 2.0
+use_projectile = false
+recoil_amount = 0.0015
+spread_base = 0.003
+spread_increase = 0.0015
+spread_max = 0.03
+spread_recovery = 0.025
+
+[node name="MuzzlePoint" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.3)
+
+[node name="WeaponMesh" type="Node3D" parent="."]
+
+[node name="RifleModel" parent="WeaponMesh" instance=ExtResource("2")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
+
+[node name="FireSound" type="AudioStreamPlayer3D" parent="."]
