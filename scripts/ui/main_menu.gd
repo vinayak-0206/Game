@@ -10,6 +10,7 @@ var main_buttons: VBoxContainer
 var map_select_panel: VBoxContainer
 var settings_panel: VBoxContainer
 var scores_panel: VBoxContainer
+var weapons_panel: VBoxContainer
 var is_map_select := false
 var is_settings := false
 
@@ -89,6 +90,7 @@ func _build_ui() -> void:
 	add_child(main_buttons)
 
 	_add_menu_button(main_buttons, "PLAY", _on_play)
+	_add_menu_button(main_buttons, "WEAPONS", _on_weapons)
 	_add_menu_button(main_buttons, "SETTINGS", _on_settings)
 	_add_menu_button(main_buttons, "HIGH SCORES", _on_high_scores)
 	_add_menu_button(main_buttons, "QUIT", _on_quit)
@@ -223,9 +225,35 @@ func _build_ui() -> void:
 	scores_back.pressed.connect(_on_back)
 	scores_panel.add_child(scores_back)
 
+	# Weapons panel (hidden)
+	weapons_panel = VBoxContainer.new()
+	weapons_panel.name = "WeaponsPanel"
+	weapons_panel.visible = false
+	weapons_panel.set_anchors_preset(Control.PRESET_CENTER)
+	weapons_panel.offset_left = -220
+	weapons_panel.offset_top = -180
+	weapons_panel.offset_right = 220
+	weapons_panel.offset_bottom = 200
+	weapons_panel.add_theme_constant_override("separation", 8)
+	add_child(weapons_panel)
+
+	var weapons_title := Label.new()
+	weapons_title.text = "WEAPONS"
+	weapons_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	weapons_title.add_theme_font_size_override("font_size", 32)
+	weapons_title.modulate = Color(0.0, 0.8, 1.0)
+	weapons_panel.add_child(weapons_title)
+
+	var weapons_back := Button.new()
+	weapons_back.text = "BACK"
+	weapons_back.custom_minimum_size = Vector2(300, 40)
+	weapons_back.add_theme_font_size_override("font_size", 18)
+	weapons_back.pressed.connect(_on_back)
+	weapons_panel.add_child(weapons_back)
+
 	# Version
 	var ver := Label.new()
-	ver.text = "v1.0"
+	ver.text = "v2.0"
 	ver.modulate = Color(0.3, 0.3, 0.4)
 	ver.add_theme_font_size_override("font_size", 12)
 	ver.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
@@ -247,6 +275,41 @@ func _add_menu_button(parent: VBoxContainer, text: String, callback: Callable) -
 func _on_play() -> void:
 	main_buttons.visible = false
 	map_select_panel.visible = true
+
+
+func _on_weapons() -> void:
+	# Populate weapons list
+	# Clear old entries (keep title + back button)
+	while weapons_panel.get_child_count() > 2:
+		weapons_panel.get_child(1).queue_free()
+
+	var all_weapons := ["Assault Rifle", "Pistol", "Shotgun", "SMG", "Sniper Rifle", "Rocket Launcher"]
+	var gs = get_node_or_null("/root/GameState")
+
+	for i in range(all_weapons.size()):
+		var wname: String = all_weapons[i]
+		var lbl := Label.new()
+		var unlocked := true
+		if gs and gs.has_method("is_weapon_unlocked"):
+			unlocked = gs.is_weapon_unlocked(wname)
+
+		if unlocked:
+			lbl.text = "[UNLOCKED] %s" % wname
+			lbl.modulate = Color(0.2, 1.0, 0.4)
+		else:
+			var threshold: int = 0
+			if gs and "WEAPON_UNLOCK_THRESHOLDS" in gs:
+				threshold = gs.WEAPON_UNLOCK_THRESHOLDS.get(wname, 0)
+			lbl.text = "[LOCKED] %s — Score %d to unlock" % [wname, threshold]
+			lbl.modulate = Color(0.5, 0.5, 0.5)
+
+		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		lbl.add_theme_font_size_override("font_size", 16)
+		weapons_panel.add_child(lbl)
+		weapons_panel.move_child(lbl, i + 1)
+
+	main_buttons.visible = false
+	weapons_panel.visible = true
 
 
 func _on_settings() -> void:
@@ -327,6 +390,8 @@ func _on_back() -> void:
 	map_select_panel.visible = false
 	settings_panel.visible = false
 	scores_panel.visible = false
+	if weapons_panel:
+		weapons_panel.visible = false
 	main_buttons.visible = true
 
 

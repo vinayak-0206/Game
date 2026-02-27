@@ -1,6 +1,7 @@
 extends Node
 class_name ObjectPool
 
+## DEPRECATED — GPU particles via ParticleFactory handle effects now.
 ## Generic object pool — reuses MeshInstance3D nodes instead of creating/destroying them.
 ## Reduces GC pressure and node allocation overhead during combat.
 

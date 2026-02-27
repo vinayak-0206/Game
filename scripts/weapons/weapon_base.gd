@@ -27,6 +27,11 @@ class_name WeaponBase
 @export var spread_recovery := 0.03
 @export var headshot_multiplier := 1.5
 
+@export_group("Special")
+@export var pellet_count := 1  ## Number of pellets per shot (shotgun)
+@export var has_scope := false  ## Whether weapon has a scope (sniper)
+@export var scope_fov := 30.0  ## FOV when scoped in
+
 const MAX_EFFECT_NODES := 30
 
 var current_ammo: int
@@ -116,50 +121,60 @@ func _fire_hitscan() -> void:
 
 	var space_state := get_world_3d().direct_space_state
 	var screen_center := camera_ref.get_viewport().get_visible_rect().size / 2
-
-	# Apply spread
-	var spread_offset := Vector2(
-		randf_range(-current_spread, current_spread),
-		randf_range(-current_spread, current_spread)
-	) * 1000.0
-	var aim_point := screen_center + spread_offset
-
-	var ray_origin := camera_ref.project_ray_origin(aim_point)
-	var ray_end := ray_origin + camera_ref.project_ray_normal(aim_point) * range_distance
-
-	var query := PhysicsRayQueryParameters3D.create(ray_origin, ray_end)
 	var p = _get_player()
-	if p:
-		query.exclude = [p.get_rid()]
-	query.collision_mask = 0b11111
 
-	var result := space_state.intersect_ray(query)
+	for _pellet in range(pellet_count):
+		# Apply spread (wider for multi-pellet weapons)
+		var pellet_spread := current_spread
+		if pellet_count > 1:
+			pellet_spread = maxf(pellet_spread, spread_base * 3.0)
+		var spread_offset := Vector2(
+			randf_range(-pellet_spread, pellet_spread),
+			randf_range(-pellet_spread, pellet_spread)
+		) * 1000.0
+		var aim_point := screen_center + spread_offset
 
-	var hit_pos := ray_end
-	if result:
-		hit_pos = result.position
-		var hit_body = result.collider
-		if hit_body.has_method("take_damage"):
-			var final_damage := damage
-			# Headshot detection — upper 25% of enemy
-			if "global_position" in hit_body:
-				var hit_height: float = result.position.y - hit_body.global_position.y
-				var enemy_height: float = 1.8 * (hit_body.enemy_scale if "enemy_scale" in hit_body else 1.0)
-				if hit_height > enemy_height * 0.75:
-					final_damage *= headshot_multiplier
-			hit_body.take_damage(final_damage, _get_player())
+		var ray_origin := camera_ref.project_ray_origin(aim_point)
+		var ray_end := ray_origin + camera_ref.project_ray_normal(aim_point) * range_distance
 
-		# Hit sparks
-		EffectSpawner.spawn_hit_sparks(get_tree(), result.position, result.normal)
-		_spawn_impact(result.position, result.normal)
+		var query := PhysicsRayQueryParameters3D.create(ray_origin, ray_end)
+		if p:
+			query.exclude = [p.get_rid()]
+		query.collision_mask = 0b11111
 
-	# Tracer
-	var muzzle_pos := muzzle.global_position if muzzle else global_position
-	_spawn_tracer(muzzle_pos, hit_pos)
+		var result := space_state.intersect_ray(query)
+
+		var hit_pos := ray_end
+		if result:
+			hit_pos = result.position
+			var hit_body = result.collider
+			if hit_body.has_method("take_damage"):
+				var final_damage := damage
+				# Headshot detection — upper 25% of enemy
+				if "global_position" in hit_body:
+					var hit_height: float = result.position.y - hit_body.global_position.y
+					var enemy_height: float = 1.8 * (hit_body.enemy_scale if "enemy_scale" in hit_body else 1.0)
+					if hit_height > enemy_height * 0.75:
+						final_damage *= headshot_multiplier
+				hit_body.take_damage(final_damage, p)
+				# Hit marker on HUD
+				if p:
+					var hud_node = p.get_node_or_null("HUD")
+					if hud_node and hud_node.has_method("show_hit_marker"):
+						hud_node.show_hit_marker()
+
+			# Hit sparks (GPU) + decal
+			ParticleFactory.spawn_hit_sparks(get_tree(), result.position, result.normal)
+			DecalSpawner.spawn_bullet_hole(get_tree(), result.position, result.normal)
+			_spawn_impact(result.position, result.normal)
+
+		# Tracer
+		var muzzle_pos := muzzle.global_position if muzzle else global_position
+		_spawn_tracer(muzzle_pos, hit_pos)
 
 
 func _fire_projectile() -> void:
-	if not projectile_scene or not camera_ref:
+	if not camera_ref:
 		return
 
 	var spawn_pos: Vector3
@@ -179,7 +194,19 @@ func _fire_projectile() -> void:
 	)
 	aim_dir = aim_dir.normalized()
 
-	var projectile = projectile_scene.instantiate()
+	var projectile: Node3D
+	if projectile_scene:
+		projectile = projectile_scene.instantiate()
+	else:
+		# Default: create a RocketProjectile for projectile weapons without a scene
+		var rocket := RocketProjectile.new()
+		var col := CollisionShape3D.new()
+		var shape := SphereShape3D.new()
+		shape.radius = 0.2
+		col.shape = shape
+		rocket.add_child(col)
+		projectile = rocket
+
 	get_tree().root.add_child(projectile)
 	projectile.global_position = spawn_pos
 	projectile.look_at(spawn_pos + aim_dir)
@@ -249,8 +276,12 @@ func _play_fire_effects() -> void:
 	if fire_sound:
 		fire_sound.play()
 
-	# Muzzle flash — bright light + quick mesh burst
+	# GPU muzzle flash
 	if muzzle:
+		var forward := -muzzle.global_transform.basis.z
+		ParticleFactory.spawn_muzzle_flash(get_tree(), muzzle.global_position, forward)
+
+		# Brief omni flash for lighting
 		var flash := OmniLight3D.new()
 		flash.light_color = Color(1, 0.85, 0.3)
 		flash.light_energy = 8.0
@@ -259,26 +290,6 @@ func _play_fire_effects() -> void:
 		var tween := flash.create_tween()
 		tween.tween_property(flash, "light_energy", 0.0, 0.1)
 		tween.tween_callback(flash.queue_free)
-
-		# Muzzle flash mesh (star-like burst)
-		var flash_mesh := MeshInstance3D.new()
-		var sphere := SphereMesh.new()
-		sphere.radius = 0.05
-		sphere.height = 0.1
-		flash_mesh.mesh = sphere
-		var flash_mat := StandardMaterial3D.new()
-		flash_mat.albedo_color = Color(1, 0.9, 0.5, 1)
-		flash_mat.emission_enabled = true
-		flash_mat.emission = Color(1, 0.8, 0.3)
-		flash_mat.emission_energy_multiplier = 15.0
-		flash_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		flash_mesh.material_override = flash_mat
-		muzzle.add_child(flash_mesh)
-		var mtween := flash_mesh.create_tween()
-		mtween.set_parallel(true)
-		mtween.tween_property(flash_mesh, "scale", Vector3(2.5, 2.5, 2.5), 0.05)
-		mtween.tween_property(flash_mat, "albedo_color:a", 0.0, 0.08)
-		mtween.chain().tween_callback(flash_mesh.queue_free)
 
 
 func _track_effect(node: Node) -> void:

@@ -1,0 +1,35 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/weapons/weapon_base.gd" id="1"]
+
+[sub_resource type="BoxMesh" id="BoxMesh_sniper"]
+size = Vector3(0.04, 0.05, 0.7)
+
+[node name="Sniper" type="Node3D"]
+script = ExtResource("1")
+weapon_name = "Sniper Rifle"
+damage = 120.0
+fire_rate = 1.5
+range_distance = 150.0
+max_ammo = 5
+max_reserve = 20
+reload_time = 2.5
+use_projectile = false
+recoil_amount = 0.012
+spread_base = 0.0
+spread_increase = 0.001
+spread_max = 0.008
+spread_recovery = 0.05
+pellet_count = 1
+has_scope = true
+scope_fov = 30.0
+
+[node name="MuzzlePoint" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.4)
+
+[node name="WeaponMesh" type="Node3D" parent="."]
+
+[node name="SniperModel" type="MeshInstance3D" parent="WeaponMesh"]
+mesh = SubResource("BoxMesh_sniper")
+
+[node name="FireSound" type="AudioStreamPlayer3D" parent="."]

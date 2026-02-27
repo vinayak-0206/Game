@@ -1,0 +1,37 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/weapons/weapon_base.gd" id="1"]
+
+[sub_resource type="CylinderMesh" id="CylMesh_rocket"]
+top_radius = 0.04
+bottom_radius = 0.04
+height = 0.6
+
+[node name="RocketLauncher" type="Node3D"]
+script = ExtResource("1")
+weapon_name = "Rocket Launcher"
+damage = 80.0
+fire_rate = 1.2
+range_distance = 100.0
+max_ammo = 4
+max_reserve = 12
+reload_time = 3.0
+use_projectile = true
+projectile_speed = 35.0
+recoil_amount = 0.01
+spread_base = 0.002
+spread_increase = 0.0
+spread_max = 0.005
+spread_recovery = 0.05
+pellet_count = 1
+has_scope = false
+
+[node name="MuzzlePoint" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.35)
+
+[node name="WeaponMesh" type="Node3D" parent="."]
+
+[node name="RocketModel" type="MeshInstance3D" parent="WeaponMesh"]
+mesh = SubResource("CylMesh_rocket")
+
+[node name="FireSound" type="AudioStreamPlayer3D" parent="."]

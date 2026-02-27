@@ -111,7 +111,7 @@ func _consume() -> void:
 	is_active = false
 	visible = false
 	_set_light_enabled(false)
-	EffectSpawner.spawn_pickup_effect(get_tree(), global_position, pickup_color)
+	ParticleFactory.spawn_pickup_effect(get_tree(), global_position, pickup_color)
 	var am = get_node_or_null("/root/AudioManager")
 	if am and am.has_method("play_pickup"):
 		am.play_pickup()

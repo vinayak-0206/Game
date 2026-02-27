@@ -68,6 +68,13 @@ var grenades := 3
 var recent_kills := 0
 var kill_streak_timer := 0.0
 
+# DOF
+var camera_attributes: CameraAttributesPractical
+
+# Landing/footstep dust
+var was_on_floor := true
+var footstep_dust_timer := 0.0
+
 # Node references
 @onready var camera_pivot: Node3D = $CameraPivot
 @onready var camera_arm: SpringArm3D = $CameraPivot/SpringArm3D
@@ -107,10 +114,22 @@ func _ready() -> void:
 	stamina_changed.emit(current_stamina, max_stamina)
 	grenade_count_changed.emit(grenades)
 
+	# DOF setup
+	camera_attributes = CameraAttributesPractical.new()
+	camera_attributes.dof_blur_far_enabled = true
+	camera_attributes.dof_blur_far_distance = 50.0
+	camera_attributes.dof_blur_far_transition = 10.0
+	camera_attributes.dof_blur_amount = 0.0
+	camera.attributes = camera_attributes
+
 	_build_player_visual()
 	_apply_saved_settings()
 	_add_weapon("res://scenes/weapons/rifle.tscn")
 	_add_weapon("res://scenes/weapons/pistol.tscn")
+	_add_weapon("res://scenes/weapons/shotgun.tscn")
+	_add_weapon("res://scenes/weapons/smg.tscn")
+	_add_weapon("res://scenes/weapons/sniper.tscn")
+	_add_weapon("res://scenes/weapons/rocket_launcher.tscn")
 	if weapons.size() > 0:
 		_equip_weapon(0)
 
@@ -202,6 +221,18 @@ func _input(event: InputEvent) -> void:
 				dash_requested = true
 			KEY_ESCAPE:
 				_toggle_pause()
+			KEY_1:
+				_equip_weapon_safe(0)
+			KEY_2:
+				_equip_weapon_safe(1)
+			KEY_3:
+				_equip_weapon_safe(2)
+			KEY_4:
+				_equip_weapon_safe(3)
+			KEY_5:
+				_equip_weapon_safe(4)
+			KEY_6:
+				_equip_weapon_safe(5)
 
 
 func _toggle_pause() -> void:
@@ -227,9 +258,22 @@ func _physics_process(delta: float) -> void:
 	camera_pivot.rotation.y = current_yaw
 	camera_arm.rotation.x = current_pitch
 
-	# Camera zoom
+	# Camera zoom + DOF + scope
 	var target_dist := camera_distance_aim if is_aiming else camera_distance_normal
 	camera_arm.spring_length = lerpf(camera_arm.spring_length, target_dist, 10.0 * delta)
+	# Scope zoom handling (sniper)
+	var base_fov := 75.0
+	var gs_node = get_node_or_null("/root/GameState")
+	if gs_node and "fov" in gs_node:
+		base_fov = gs_node.fov
+	var target_fov := base_fov
+	if is_aiming and current_weapon and "has_scope" in current_weapon and current_weapon.has_scope:
+		target_fov = current_weapon.scope_fov
+	camera.fov = lerpf(camera.fov, target_fov, 10.0 * delta)
+	# Smoothly enable/disable DOF blur when aiming
+	if camera_attributes:
+		var target_blur := 0.05 if is_aiming else 0.0
+		camera_attributes.dof_blur_amount = lerpf(camera_attributes.dof_blur_amount, target_blur, 8.0 * delta)
 
 	# --- Gravity ---
 	if not is_on_floor():
@@ -316,6 +360,20 @@ func _physics_process(delta: float) -> void:
 		var target_rot := atan2(-cam_forward.x, -cam_forward.z)
 		mesh.rotation.y = lerp_angle(mesh.rotation.y, target_rot, 20.0 * delta)
 
+	# Landing dust (detect floor transition)
+	if is_on_floor() and not was_on_floor:
+		ParticleFactory.spawn_landing_dust(get_tree(), global_position)
+	was_on_floor = is_on_floor()
+
+	# Sprint footstep dust (timer-based while sprinting on ground)
+	if is_sprinting and is_on_floor() and direction.length() > 0:
+		footstep_dust_timer -= delta
+		if footstep_dust_timer <= 0:
+			footstep_dust_timer = 0.25
+			ParticleFactory.spawn_footstep_dust(get_tree(), global_position)
+	else:
+		footstep_dust_timer = 0.0
+
 	_update_effects(delta)
 	move_and_slide()
 
@@ -359,6 +417,10 @@ func take_damage(amount: float, from_who: Node = null) -> void:
 	health_changed.emit(current_health, max_health)
 	_add_screen_shake(0.3)
 	damage_flash = 1.0
+	# Damage direction indicator
+	if from_who and is_instance_valid(from_who) and "global_position" in from_who:
+		if hud and hud.has_method("show_damage_direction"):
+			hud.show_damage_direction(from_who.global_position)
 	if current_health <= 0:
 		_die()
 
@@ -405,6 +467,9 @@ func _show_kill_marker(points: int, combo_count: int) -> void:
 	hit_freeze_timer = 0.06  # Real-time duration (not affected by time_scale)
 	if hud and hud.has_method("show_kill_popup"):
 		hud.show_kill_popup(points, combo_count)
+	# Kill marker on crosshair
+	if hud and hud.has_method("show_kill_crosshair_marker"):
+		hud.show_kill_crosshair_marker()
 	# Kill streak announcements
 	if recent_kills >= 2 and hud and hud.has_method("show_streak"):
 		var streak_text := ""
@@ -479,6 +544,12 @@ func _equip_weapon(index: int) -> void:
 	if current_weapon.has_method("get_ammo_info"):
 		var info = current_weapon.get_ammo_info()
 		ammo_changed.emit(info.current, info.reserve)
+
+
+func _equip_weapon_safe(index: int) -> void:
+	if index >= 0 and index < weapons.size() and index != current_weapon_index:
+		_equip_weapon(index)
+		_add_screen_shake(0.05)
 
 
 func _switch_weapon() -> void:

@@ -29,11 +29,17 @@ var enemy_spawn_points: Array = []
 
 # Enemy variety per wave
 var enemy_configs := [
-	{"color": Color(1.0, 0.2, 0.1), "health": 60, "speed": 4.0, "damage": 8, "score": 100, "scale": 1.0},
-	{"color": Color(1.0, 0.6, 0.0), "health": 100, "speed": 3.5, "damage": 12, "score": 150, "scale": 1.15},
-	{"color": Color(0.8, 0.0, 1.0), "health": 40, "speed": 7.0, "damage": 15, "score": 200, "scale": 0.85},
-	{"color": Color(0.0, 1.0, 0.2), "health": 150, "speed": 3.0, "damage": 20, "score": 300, "scale": 1.3},
+	{"color": Color(1.0, 0.2, 0.1), "health": 60, "speed": 4.0, "damage": 8, "score": 100, "scale": 1.0, "type": "basic"},
+	{"color": Color(1.0, 0.6, 0.0), "health": 100, "speed": 3.5, "damage": 12, "score": 150, "scale": 1.15, "type": "tank"},
+	{"color": Color(0.8, 0.0, 1.0), "health": 40, "speed": 7.0, "damage": 15, "score": 200, "scale": 0.85, "type": "fast"},
+	{"color": Color(0.0, 1.0, 0.2), "health": 150, "speed": 3.0, "damage": 20, "score": 300, "scale": 1.3, "type": "boss_mini"},
+	{"color": Color(0.2, 0.5, 1.0), "health": 120, "speed": 3.0, "damage": 10, "score": 250, "scale": 1.1, "type": "shield"},
+	{"color": Color(0.6, 0.9, 1.0), "health": 50, "speed": 6.0, "damage": 12, "score": 200, "scale": 0.7, "type": "drone"},
+	{"color": Color(1.0, 0.1, 0.3), "health": 80, "speed": 8.0, "damage": 0, "score": 180, "scale": 1.0, "type": "rusher"},
 ]
+
+var is_boss_wave := false
+var boss_enemy: Node = null
 
 signal score_updated(new_score: int)
 signal kill_registered(total_kills: int)
@@ -188,9 +194,16 @@ func _show_upgrade_shop() -> void:
 
 func _start_next_wave() -> void:
 	wave += 1
-	var enemy_count := starting_enemies + (wave - 1) * enemies_per_wave
-	enemy_count = mini(enemy_count, max_enemies_alive)
-	enemies_to_spawn = enemy_count
+	is_boss_wave = (wave % 5 == 0)
+
+	if is_boss_wave:
+		# Boss wave: single powerful enemy
+		enemies_to_spawn = 1
+	else:
+		var enemy_count := starting_enemies + (wave - 1) * enemies_per_wave
+		enemy_count = mini(enemy_count, max_enemies_alive)
+		enemies_to_spawn = enemy_count
+
 	is_wave_active = true
 	spawn_timer = 0.5
 
@@ -212,6 +225,35 @@ func _spawn_enemy() -> void:
 	add_child(enemy)
 	enemy.global_position = spawn_pos
 
+	# Scale difficulty with waves + difficulty setting
+	var wave_mult := 1.0 + (wave - 1) * 0.1
+	var diff_mult := 1.0
+	var gs = get_node_or_null("/root/GameState")
+	if gs and gs.has_method("get_difficulty_multiplier"):
+		diff_mult = gs.get_difficulty_multiplier()
+
+	# Boss wave: spawn a single powerful boss
+	if is_boss_wave:
+		var boss_hp := 500.0 + wave * 50.0
+		enemy.max_health = boss_hp * diff_mult
+		enemy.current_health = enemy.max_health
+		enemy.move_speed = 3.5
+		enemy.chase_speed = 5.0
+		enemy.damage = 25.0 * wave_mult * diff_mult
+		enemy.score_value = 1000
+		enemy.enemy_color = Color(1.0, 0.0, 0.2)
+		enemy.enemy_scale = 1.8
+		enemy.is_boss = true
+		boss_enemy = enemy
+
+		# Show boss health bar on HUD
+		var player = get_tree().get_first_node_in_group("player")
+		if player:
+			var hud_node = player.get_node_or_null("HUD")
+			if hud_node and hud_node.has_method("show_boss_health"):
+				hud_node.show_boss_health("WAVE %d BOSS" % wave, enemy.current_health, enemy.max_health)
+		return
+
 	# Apply enemy variety based on wave — gradual introduction
 	var config: Dictionary
 	if wave <= 2:
@@ -221,18 +263,7 @@ func _spawn_enemy() -> void:
 	elif wave <= 6:
 		config = enemy_configs[randi() % 3]
 	elif wave <= 8:
-		# Introduce bosses rarely (1 in 8 chance)
-		var roll := randi() % 8
-		if roll < 3:
-			config = enemy_configs[0]
-		elif roll < 5:
-			config = enemy_configs[1]
-		elif roll < 7:
-			config = enemy_configs[2]
-		else:
-			config = enemy_configs[3]
-	else:
-		# Wave 9+: bosses more common but still balanced
+		# Introduce shield enemies (wave 7+)
 		var roll := randi() % 10
 		if roll < 3:
 			config = enemy_configs[0]
@@ -240,15 +271,43 @@ func _spawn_enemy() -> void:
 			config = enemy_configs[1]
 		elif roll < 7:
 			config = enemy_configs[2]
+		elif roll < 9:
+			config = enemy_configs[4]  # Shield
+		else:
+			config = enemy_configs[3]
+	elif wave <= 10:
+		# Introduce drones (wave 9+)
+		var roll := randi() % 12
+		if roll < 3:
+			config = enemy_configs[0]
+		elif roll < 5:
+			config = enemy_configs[1]
+		elif roll < 7:
+			config = enemy_configs[2]
+		elif roll < 9:
+			config = enemy_configs[4]  # Shield
+		elif roll < 11:
+			config = enemy_configs[5]  # Drone
+		else:
+			config = enemy_configs[3]
+	else:
+		# Wave 11+: all types including rushers
+		var roll := randi() % 14
+		if roll < 3:
+			config = enemy_configs[0]
+		elif roll < 5:
+			config = enemy_configs[1]
+		elif roll < 7:
+			config = enemy_configs[2]
+		elif roll < 9:
+			config = enemy_configs[4]  # Shield
+		elif roll < 11:
+			config = enemy_configs[5]  # Drone
+		elif roll < 13:
+			config = enemy_configs[6]  # Rusher
 		else:
 			config = enemy_configs[3]
 
-	# Scale difficulty with waves + difficulty setting
-	var wave_mult := 1.0 + (wave - 1) * 0.1
-	var diff_mult := 1.0
-	var gs = get_node_or_null("/root/GameState")
-	if gs and gs.has_method("get_difficulty_multiplier"):
-		diff_mult = gs.get_difficulty_multiplier()
 	enemy.max_health = config.health * wave_mult * diff_mult
 	enemy.current_health = enemy.max_health
 	enemy.move_speed = config.speed
@@ -257,3 +316,15 @@ func _spawn_enemy() -> void:
 	enemy.score_value = config.score
 	enemy.enemy_color = config.color
 	enemy.enemy_scale = config.scale
+
+	# Set type flags after spawn
+	var enemy_type: String = config.get("type", "basic")
+	match enemy_type:
+		"shield":
+			enemy.has_shield = true
+			enemy.shield_hp = 60.0 * wave_mult * diff_mult
+		"drone":
+			enemy.is_flying = true
+		"rusher":
+			enemy.is_rusher = true
+			enemy.contact_damage = 30.0 * wave_mult * diff_mult

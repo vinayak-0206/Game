@@ -37,6 +37,12 @@ var has_ice := false
 var has_void := false
 var has_walls := true
 
+# Post-processing
+var tonemap_exposure := 1.1
+var glow_intensity := 0.4
+var volumetric_fog_density := 0.01
+var ssr_enabled := true
+
 # Preview color (for map selection UI)
 var preview_color := Color(0.0, 0.8, 1.0)
 
@@ -46,6 +52,10 @@ static func neon_nexus() -> MapData:
 	m.map_name = "NEON NEXUS"
 	m.map_description = "Dark sci-fi arena with neon glow"
 	m.preview_color = Color(0.0, 0.8, 1.0)
+	m.tonemap_exposure = 1.1
+	m.glow_intensity = 0.5
+	m.volumetric_fog_density = 0.008
+	m.ssr_enabled = true
 	return m
 
 
@@ -69,6 +79,10 @@ static func lava_foundry() -> MapData:
 	m.glow_energy = 4.0
 	m.has_lava = true
 	m.preview_color = Color(1.0, 0.3, 0.0)
+	m.tonemap_exposure = 1.2
+	m.glow_intensity = 0.6
+	m.volumetric_fog_density = 0.015
+	m.ssr_enabled = false
 	return m
 
 
@@ -94,6 +108,10 @@ static func frozen_outpost() -> MapData:
 	m.glow_energy = 2.5
 	m.has_ice = true
 	m.preview_color = Color(0.3, 0.6, 1.0)
+	m.tonemap_exposure = 1.0
+	m.glow_intensity = 0.3
+	m.volumetric_fog_density = 0.02
+	m.ssr_enabled = true
 	return m
 
 
@@ -119,6 +137,10 @@ static func void_station() -> MapData:
 	m.has_void = true
 	m.has_walls = false
 	m.preview_color = Color(0.8, 0.0, 1.0)
+	m.tonemap_exposure = 0.9
+	m.glow_intensity = 0.5
+	m.volumetric_fog_density = 0.005
+	m.ssr_enabled = true
 	return m
 
 

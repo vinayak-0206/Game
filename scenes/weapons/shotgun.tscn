@@ -1,0 +1,34 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/weapons/weapon_base.gd" id="1"]
+
+[sub_resource type="BoxMesh" id="BoxMesh_shotgun"]
+size = Vector3(0.06, 0.06, 0.5)
+
+[node name="Shotgun" type="Node3D"]
+script = ExtResource("1")
+weapon_name = "Shotgun"
+damage = 12.0
+fire_rate = 0.8
+range_distance = 40.0
+max_ammo = 6
+max_reserve = 30
+reload_time = 2.5
+use_projectile = false
+recoil_amount = 0.008
+spread_base = 0.015
+spread_increase = 0.005
+spread_max = 0.04
+spread_recovery = 0.05
+pellet_count = 8
+has_scope = false
+
+[node name="MuzzlePoint" type="Marker3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -0.35)
+
+[node name="WeaponMesh" type="Node3D" parent="."]
+
+[node name="ShotgunModel" type="MeshInstance3D" parent="WeaponMesh"]
+mesh = SubResource("BoxMesh_shotgun")
+
+[node name="FireSound" type="AudioStreamPlayer3D" parent="."]

@@ -23,6 +23,15 @@ var fire_timer := 0.0
 var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var hit_flash_timer := 0.0
 
+# Special enemy type flags
+var has_shield := false
+var shield_hp := 60.0
+var shield_mesh: MeshInstance3D = null
+var is_flying := false
+var is_rusher := false
+var contact_damage := 30.0
+var is_boss := false
+
 enum State { PATROL, CHASE, ATTACK, DEAD }
 var current_state := State.PATROL
 
@@ -46,6 +55,7 @@ func _ready() -> void:
 	scale = Vector3.ONE * enemy_scale
 
 	_build_visual()
+	_build_special_visuals()
 	_find_player()
 	_pick_patrol_target()
 	current_state = State.PATROL
@@ -130,13 +140,41 @@ func _build_visual() -> void:
 	add_child(health_bar_mesh)
 
 
+func _build_special_visuals() -> void:
+	# Shield enemy: frontal shield mesh
+	if has_shield:
+		shield_mesh = MeshInstance3D.new()
+		var box := BoxMesh.new()
+		box.size = Vector3(0.8, 1.2, 0.08)
+		shield_mesh.mesh = box
+		var shield_mat := StandardMaterial3D.new()
+		shield_mat.albedo_color = Color(0.3, 0.5, 1.0, 0.5)
+		shield_mat.emission_enabled = true
+		shield_mat.emission = Color(0.2, 0.4, 1.0)
+		shield_mat.emission_energy_multiplier = 3.0
+		shield_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		shield_mat.metallic = 0.6
+		shield_mat.roughness = 0.2
+		shield_mesh.material_override = shield_mat
+		shield_mesh.position = Vector3(0, 1.0, -0.4)
+		$EnemyModel.add_child(shield_mesh)
+
+	# Flying drone: hover particles
+	if is_flying:
+		global_position.y = 4.0
+
+
 func _physics_process(delta: float) -> void:
 	if is_dead:
 		return
 
-	# Gravity
-	if not is_on_floor():
+	# Gravity (skip for flying enemies)
+	if not is_flying and not is_on_floor():
 		velocity.y -= gravity * delta
+
+	# Flying enemies hover at y=4
+	if is_flying:
+		global_position.y = lerpf(global_position.y, 4.0, 2.0 * delta)
 
 	# Hit flash
 	if hit_flash_timer > 0:
@@ -234,12 +272,33 @@ func _do_attack(delta: float) -> void:
 	dir.y = 0
 	_face_direction(dir.normalized(), delta)
 
-	# Strafe a bit
-	var strafe := Vector3(-dir.normalized().z, 0, dir.normalized().x) * sin(Time.get_ticks_msec() * 0.002) * move_speed * 0.5
-	velocity.x = strafe.x
-	velocity.z = strafe.z
+	# Rusher: charge at player and deal contact damage
+	if is_rusher:
+		var charge_dir := dir.normalized()
+		velocity.x = charge_dir.x * chase_speed * 2.0
+		velocity.z = charge_dir.z * chase_speed * 2.0
+		# Contact damage when very close
+		if dist < 1.5:
+			if target.has_method("take_damage"):
+				target.take_damage(contact_damage, self)
+				# Self-knockback
+				velocity = -charge_dir * 8.0
+				velocity.y = 3.0
+		return
 
-	# Fire
+	# Flying drone: aggressive strafing
+	if is_flying:
+		var strafe_speed := move_speed * 1.5
+		var strafe := Vector3(-dir.normalized().z, 0, dir.normalized().x) * sin(Time.get_ticks_msec() * 0.004) * strafe_speed
+		velocity.x = strafe.x
+		velocity.z = strafe.z
+	else:
+		# Normal strafe
+		var strafe := Vector3(-dir.normalized().z, 0, dir.normalized().x) * sin(Time.get_ticks_msec() * 0.002) * move_speed * 0.5
+		velocity.x = strafe.x
+		velocity.z = strafe.z
+
+	# Fire (not for rushers)
 	fire_timer -= delta
 	if fire_timer <= 0:
 		_shoot()
@@ -300,9 +359,43 @@ func take_damage(amount: float, from_who: Node = null) -> void:
 	if is_dead:
 		return
 
+	# Shield enemy: block damage from the front
+	if has_shield and shield_hp > 0 and from_who and is_instance_valid(from_who) and from_who is Node3D:
+		var attacker_pos: Vector3 = (from_who as Node3D).global_position
+		var to_attacker: Vector3 = (attacker_pos - global_position).normalized()
+		var forward: Vector3 = -global_transform.basis.z
+		var dot: float = forward.dot(to_attacker)
+		if dot < -0.3:  # Attack coming from the front
+			shield_hp -= amount
+			if shield_hp <= 0:
+				# Shield break effect
+				shield_hp = 0
+				has_shield = false
+				if shield_mesh:
+					ParticleFactory.spawn_death_explosion(get_tree(), shield_mesh.global_position, Color(0.3, 0.5, 1.0))
+					shield_mesh.queue_free()
+					shield_mesh = null
+			else:
+				# Shield hit flash
+				if shield_mesh and shield_mesh.material_override:
+					shield_mesh.material_override.emission_energy_multiplier = 8.0
+					get_tree().create_timer(0.1).timeout.connect(func():
+						if is_instance_valid(shield_mesh) and shield_mesh.material_override:
+							shield_mesh.material_override.emission_energy_multiplier = 3.0
+					)
+			return
+
 	current_health -= amount
 	_update_health_bar()
 	_flash_hit()
+
+	# Update boss health bar if this is a boss
+	if is_boss:
+		var player = get_tree().get_first_node_in_group("player")
+		if player:
+			var hud_node = player.get_node_or_null("HUD")
+			if hud_node and hud_node.has_method("update_boss_health"):
+				hud_node.update_boss_health(current_health)
 	var am = get_node_or_null("/root/AudioManager")
 	if am and am.has_method("play_hit"):
 		am.play_hit()
@@ -332,8 +425,16 @@ func _die(killer: Node = null) -> void:
 	if game_mgr and game_mgr.has_method("on_enemy_killed"):
 		game_mgr.on_enemy_killed(self, killer)
 
-	# Death explosion particles
-	EffectSpawner.spawn_death_explosion(get_tree(), global_position + Vector3(0, 1, 0), enemy_color)
+	# Hide boss health bar if this is a boss
+	if is_boss:
+		var player = get_tree().get_first_node_in_group("player")
+		if player:
+			var hud_node = player.get_node_or_null("HUD")
+			if hud_node and hud_node.has_method("hide_boss_health"):
+				hud_node.hide_boss_health()
+
+	# Death explosion particles (GPU)
+	ParticleFactory.spawn_death_explosion(get_tree(), global_position + Vector3(0, 1, 0), enemy_color)
 	var am = get_node_or_null("/root/AudioManager")
 	if am and am.has_method("play_death"):
 		am.play_death()

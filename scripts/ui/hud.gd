@@ -23,6 +23,16 @@ var streak_label: Label
 var minimap_control: Control
 var controls_hint: VBoxContainer
 var upgrade_shop: Control
+var crosshair: DynamicCrosshair
+var damage_pp: DamagePostProcess
+var boss_health_bar: ProgressBar
+var boss_health_bg: Panel
+var boss_name_label: Label
+var damage_direction_indicator: Control
+var last_attacker_pos := Vector3.ZERO
+var damage_dir_timer := 0.0
+var health_tween: Tween = null
+var low_health_pulse_tween: Tween = null
 
 
 func _ready() -> void:
@@ -57,6 +67,10 @@ func _ready() -> void:
 	_build_game_over_screen()
 	_build_controls_hint()
 	_build_upgrade_shop()
+	_build_crosshair()
+	_build_damage_post_process()
+	_build_boss_health_bar()
+	_build_damage_direction_indicator()
 
 
 func _build_stamina_bar() -> void:
@@ -181,27 +195,137 @@ func _build_upgrade_shop() -> void:
 		add_child(upgrade_shop)
 
 
+func _build_crosshair() -> void:
+	crosshair = DynamicCrosshair.new()
+	crosshair.name = "DynamicCrosshair"
+	add_child(crosshair)
+
+
+func _build_damage_post_process() -> void:
+	damage_pp = DamagePostProcess.new()
+	damage_pp.name = "DamagePostProcess"
+	add_child(damage_pp)
+
+
+func _build_boss_health_bar() -> void:
+	boss_health_bg = Panel.new()
+	boss_health_bg.name = "BossHealthBG"
+	boss_health_bg.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	boss_health_bg.offset_left = -300
+	boss_health_bg.offset_top = 20
+	boss_health_bg.offset_right = 300
+	boss_health_bg.offset_bottom = 60
+	boss_health_bg.visible = false
+	add_child(boss_health_bg)
+
+	boss_name_label = Label.new()
+	boss_name_label.text = "BOSS"
+	boss_name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	boss_name_label.add_theme_font_size_override("font_size", 14)
+	boss_name_label.modulate = Color(1.0, 0.3, 0.2)
+	boss_name_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	boss_name_label.offset_left = -100
+	boss_name_label.offset_top = 4
+	boss_name_label.offset_right = 100
+	boss_name_label.offset_bottom = 20
+	boss_health_bg.add_child(boss_name_label)
+
+	boss_health_bar = ProgressBar.new()
+	boss_health_bar.name = "BossHealthBar"
+	boss_health_bar.set_anchors_preset(Control.PRESET_FULL_RECT)
+	boss_health_bar.offset_left = 10
+	boss_health_bar.offset_top = 22
+	boss_health_bar.offset_right = -10
+	boss_health_bar.offset_bottom = -4
+	boss_health_bar.max_value = 100.0
+	boss_health_bar.value = 100.0
+	boss_health_bar.show_percentage = false
+	boss_health_bar.modulate = Color(1.0, 0.15, 0.1)
+	boss_health_bg.add_child(boss_health_bar)
+
+
+func _build_damage_direction_indicator() -> void:
+	damage_direction_indicator = Control.new()
+	damage_direction_indicator.name = "DamageDirection"
+	damage_direction_indicator.set_anchors_preset(Control.PRESET_FULL_RECT)
+	damage_direction_indicator.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	damage_direction_indicator.visible = false
+	add_child(damage_direction_indicator)
+
+
+func show_boss_health(boss_name: String, current_hp: float, max_hp: float) -> void:
+	if boss_health_bg:
+		boss_health_bg.visible = true
+	if boss_name_label:
+		boss_name_label.text = boss_name
+	if boss_health_bar:
+		boss_health_bar.max_value = max_hp
+		boss_health_bar.value = current_hp
+
+
+func update_boss_health(current_hp: float) -> void:
+	if boss_health_bar:
+		boss_health_bar.value = current_hp
+
+
+func hide_boss_health() -> void:
+	if boss_health_bg:
+		boss_health_bg.visible = false
+
+
+func show_hit_marker() -> void:
+	if crosshair:
+		crosshair.show_hit_marker()
+
+
+func show_kill_crosshair_marker() -> void:
+	if crosshair:
+		crosshair.show_kill_marker()
+
+
+func show_damage_direction(attacker_pos: Vector3) -> void:
+	last_attacker_pos = attacker_pos
+	damage_dir_timer = 1.0
+
+
 func show_upgrade_shop(score: int, wave: int) -> void:
 	if upgrade_shop and upgrade_shop.has_method("open_shop"):
 		upgrade_shop.open_shop(score, wave)
 
 
-func _process(_delta: float) -> void:
-	# Damage overlay with vignette effect
-	if damage_overlay and player:
+func _process(delta: float) -> void:
+	# Chromatic aberration damage shader (replaces flat overlay)
+	if player:
 		var flash: float = player.damage_flash if "damage_flash" in player else 0.0
-		var alpha := flash * 0.5
-		# Pulse red edges on hit for chromatic aberration feel
-		if flash > 0.5:
-			damage_overlay.color = Color(1, 0.1, 0.05, alpha)
-		else:
-			damage_overlay.color = Color(0.8, 0, 0, alpha * 0.7)
+		if damage_pp:
+			damage_pp.damage_intensity = flash
+		# Hide old overlay if present
+		if damage_overlay:
+			damage_overlay.visible = false
+
+		# Update crosshair spread from current weapon
+		if crosshair and "current_weapon" in player and player.current_weapon:
+			var wep = player.current_weapon
+			if "current_spread" in wep and "spread_max" in wep:
+				crosshair.set_spread(wep.current_spread, wep.spread_max)
+
+	# Damage direction indicator
+	if damage_dir_timer > 0:
+		damage_dir_timer -= delta
+		if damage_direction_indicator:
+			damage_direction_indicator.visible = damage_dir_timer > 0
+			damage_direction_indicator.queue_redraw()
 
 
 func _on_health_changed(current: float, max_hp: float) -> void:
 	if health_bar:
 		health_bar.max_value = max_hp
-		health_bar.value = current
+		# Smooth health bar transition (tween instead of snap)
+		if health_tween and health_tween.is_valid():
+			health_tween.kill()
+		health_tween = create_tween()
+		health_tween.tween_property(health_bar, "value", current, 0.3).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
+
 		var pct := current / max_hp
 		if pct > 0.6:
 			health_bar.modulate = Color(0.2, 1.0, 0.4)
@@ -209,6 +333,19 @@ func _on_health_changed(current: float, max_hp: float) -> void:
 			health_bar.modulate = Color(1.0, 0.8, 0.1)
 		else:
 			health_bar.modulate = Color(1.0, 0.15, 0.1)
+
+		# Low health pulse effect
+		if pct <= 0.25 and pct > 0:
+			if not low_health_pulse_tween or not low_health_pulse_tween.is_valid():
+				low_health_pulse_tween = create_tween().set_loops()
+				low_health_pulse_tween.tween_property(health_bar, "modulate:a", 0.4, 0.4)
+				low_health_pulse_tween.tween_property(health_bar, "modulate:a", 1.0, 0.4)
+		else:
+			if low_health_pulse_tween and low_health_pulse_tween.is_valid():
+				low_health_pulse_tween.kill()
+				low_health_pulse_tween = null
+			health_bar.modulate.a = 1.0
+
 	if health_label:
 		health_label.text = "%d" % int(current)
 
@@ -247,17 +384,25 @@ func _on_timer_updated(time: float) -> void:
 func _on_wave_started(wave_num: int) -> void:
 	if wave_label:
 		wave_label.text = "WAVE %d" % wave_num
-		wave_label.modulate = Color(1, 0.8, 0)
+		wave_label.modulate = Color(1, 0.8, 0, 1)
+		wave_label.scale = Vector2(1.5, 1.5)
+		wave_label.pivot_offset = wave_label.size / 2
 		var tween := create_tween()
-		tween.tween_property(wave_label, "modulate", Color(1, 1, 1), 1.0)
+		tween.set_parallel(true)
+		tween.tween_property(wave_label, "scale", Vector2(1, 1), 0.4).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_BACK)
+		tween.tween_property(wave_label, "modulate", Color(1, 1, 1, 1), 1.5)
 
 
 func _on_wave_cleared(wave_num: int) -> void:
 	if wave_label:
 		wave_label.text = "WAVE %d CLEARED!" % wave_num
-		wave_label.modulate = Color(0, 1, 0.5)
+		wave_label.modulate = Color(0, 1, 0.5, 1)
+		wave_label.scale = Vector2(1.3, 1.3)
+		wave_label.pivot_offset = wave_label.size / 2
 		var tween := create_tween()
-		tween.tween_property(wave_label, "modulate", Color(1, 1, 1), 2.0)
+		tween.set_parallel(true)
+		tween.tween_property(wave_label, "scale", Vector2(1, 1), 0.3).set_ease(Tween.EASE_OUT)
+		tween.tween_property(wave_label, "modulate", Color(1, 1, 1, 1), 2.0)
 
 
 func _on_combo_updated(combo_count: int, multiplier: float) -> void:

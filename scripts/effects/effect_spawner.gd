@@ -1,6 +1,8 @@
 extends Node
 class_name EffectSpawner
 
+## DEPRECATED — Use ParticleFactory instead for GPU-based particle effects.
+## Kept as fallback for compatibility.
 ## Static helper for spawning visual effects with node limits
 
 const MAX_EFFECT_NODES := 60

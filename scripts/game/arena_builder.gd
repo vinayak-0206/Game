@@ -6,6 +6,17 @@ var env: Environment
 var sky_mat: ProceduralSkyMaterial
 var theme: MapData
 var half_size: float
+var glow_strip_meshes: Array[MeshInstance3D] = []
+var glow_strip_base_energy: float = 3.0
+
+
+func _process(_delta: float) -> void:
+	# Emissive pulse animation on glow strips (sine wave loop)
+	var t := Time.get_ticks_msec() * 0.001
+	for strip in glow_strip_meshes:
+		if is_instance_valid(strip) and strip.material_override:
+			var pulse := sin(t * 2.0) * 0.3 + 1.0
+			strip.material_override.emission_energy_multiplier = glow_strip_base_energy * pulse
 
 
 func _ready() -> void:
@@ -56,21 +67,42 @@ func _build_environment() -> void:
 	env.ambient_light_energy = theme.ambient_energy
 	env.ambient_light_color = theme.ambient_color
 
+	# Enhanced tonemapping
 	env.set("tonemap_mode", 2)
-	env.tonemap_exposure = 1.1
+	env.tonemap_exposure = theme.tonemap_exposure
+	env.tonemap_white = 6.0
 
+	# Enhanced glow with HDR threshold
 	env.glow_enabled = true
-	env.glow_intensity = 0.4
-	env.glow_bloom = 0.1
+	env.glow_intensity = theme.glow_intensity
+	env.glow_bloom = 0.15
 	env.set("glow_blend_mode", 2)
+	env.glow_hdr_threshold = 1.0
+	env.glow_hdr_luminance_cap = 12.0
 
+	# Volumetric fog (replaces flat fog)
+	env.volumetric_fog_enabled = true
+	env.volumetric_fog_density = theme.volumetric_fog_density
+	env.volumetric_fog_albedo = theme.fog_color
+	env.volumetric_fog_emission = theme.fog_color * 0.3
+	env.volumetric_fog_length = 40.0
+	# Keep regular fog as subtle background fill
 	env.fog_enabled = true
 	env.fog_light_color = theme.fog_color
-	env.fog_density = theme.fog_density
+	env.fog_density = theme.fog_density * 0.3
 
+	# SSR (screen-space reflections) for metallic floors
+	if theme.ssr_enabled:
+		env.ssr_enabled = true
+		env.ssr_max_steps = 64
+		env.ssr_fade_in = 0.15
+		env.ssr_fade_out = 2.0
+		env.ssr_depth_tolerance = 0.2
+
+	# SSAO
 	env.ssao_enabled = true
 	env.ssao_radius = 2.0
-	env.ssao_intensity = 2.0
+	env.ssao_intensity = 2.5
 
 	var world_env := WorldEnvironment.new()
 	world_env.environment = env
@@ -88,7 +120,7 @@ func _build_floor() -> void:
 	var box := BoxMesh.new()
 	box.size = Vector3(size, 0.2, size)
 	mesh_inst.mesh = box
-	mesh_inst.material_override = _mat(theme.floor_color, 0.2, 0.6)
+	mesh_inst.material_override = _mat(theme.floor_color, 0.4, 0.3)
 	body.add_child(mesh_inst)
 
 	var col := CollisionShape3D.new()
@@ -97,8 +129,8 @@ func _build_floor() -> void:
 	col.shape = shape
 	body.add_child(col)
 
-	# Glowing edge strips
-	var edge_mat := _glow_mat(theme.glow_color, theme.glow_energy)
+	# Glowing edge strips (tracked for emissive pulse animation)
+	glow_strip_base_energy = theme.glow_energy
 	var hs := size / 2.0
 	var edges := [
 		[Vector3(0, 0.01, hs - 0.5), Vector3(size, 0.05, 0.15)],
@@ -111,9 +143,11 @@ func _build_floor() -> void:
 		var edge_box := BoxMesh.new()
 		edge_box.size = edge_data[1]
 		edge_mesh.mesh = edge_box
-		edge_mesh.material_override = edge_mat
+		var strip_mat := _glow_mat(theme.glow_color, theme.glow_energy)
+		edge_mesh.material_override = strip_mat
 		edge_mesh.position = edge_data[0]
 		add_child(edge_mesh)
+		glow_strip_meshes.append(edge_mesh)
 
 	# Ice floor visual - lighter shimmer
 	if theme.has_ice:
@@ -325,12 +359,16 @@ func _build_lights() -> void:
 		[Vector3(-half_size * 0.7, 4.5, -half_size * 0.7), theme.accent_color * Color(0.2, 1.5, 0.5), 6.0],
 	]
 
-	for data in accent_lights:
+	for idx in range(accent_lights.size()):
+		var data = accent_lights[idx]
 		var accent := OmniLight3D.new()
 		accent.position = data[0]
 		accent.light_color = data[1]
 		accent.omni_range = data[2]
 		accent.light_energy = 2.0
+		# Enable shadow on center accent light
+		if idx == 0:
+			accent.shadow_enabled = true
 		add_child(accent)
 
 
